@@ -1,0 +1,16 @@
+	#TITLE	"IDLE HANDLER FOR TURBODOS"
+	#SUBTTL	"(C)2020 Lodden Services, LLC"
+;
+; IDLE.A
+; idle process handler 
+;
+	MODULE	"IDLE"
+;
+	LOC Code#
+;
+IDLE::
+	HLT
+	RET
+
+END
+

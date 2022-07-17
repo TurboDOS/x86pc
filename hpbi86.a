@@ -1,0 +1,113 @@
+	#TITLE	"TurboDOS Hard Disk Boot for the IBM-PCAT"
+	#SUBTTL	"Program Header"
+	#PAGE	132,66
+;
+;	HPBIAT.A  (HARD DISK BOOT)
+;
+; COPYRIGHT 1984, SOFTWARE 2000, INC.
+;
+; Version: 05/21/85
+;
+; Edit History:
+;  03/25/84 JL - Version created for the hard disk.
+;  05/09/84 JL - Configured version for SECGEN utility use.
+;  05/21/85 MGL - Converted from 10 Mb XT version to 20 Mb AT version
+;  11/08/20 jrl - updated for QEMU 20mb 
+;
+	MODULE	"HPBI86"  		; module ID
+;
+#INCLUDE	"EQUATE"  		; common OS equivalences
+;
+NMBHDS	==	16			; number of HD R/W heads
+DISK_IO	==	0X13			; disk I/O interrupt number (ROM-BIOS)
+;
+LODSEG	==	0x0A00			; load segment address
+;
+CODE	==:	0x07C0			; code execution segment
+;
+DATALEN	==	128			; data working storage length
+;
+MAXTRY	==	4			; max try count
+;
+	#SUBTTL	"Driver Working Storage Area"
+	#PAGE
+;
+	LOC	DATALEN			; locate after data segment
+;
+WSBASE	==	.			; working storage base
+;
+DRIVE:	RES	BYTE 1			; drive number
+TRYCNT:	RES	BYTE 1			; try count
+;
+WSLEN	==	.-WSBASE		; working storage length
+;
+DATA	==:	CODE-((DATALEN+WSLEN+15)/16)	; data segment
+;
+	#SUBTTL	"Driver Code Area"
+	#PAGE
+;
+	LOC	Code#			; locate in code segment
+;
+INIT::	STI				; enable interrupts
+	MOV	AH,=0			; set function number = 0
+	MOV	DL,=0x80		; HD = 0
+	INT	DISK_IO			; reset disk I/O driver
+	MOV	AX,&LODSEG		; get load segment address
+	RET				; done
+;
+SELECT::MOV	AL,=0			; force drive 0
+	MOV	DRIVE,AL 		; set drive number
+	MOV	SI,&DSTHDC		; preset DST address for hard disk
+	NOT	AL			; set return code = FF hex
+	RET				; done
+;
+READ::
+	PUSH	DX			; save sector number
+	MOV	AX,CX			; get PD requested track number
+	XOR	DX,DX			; prep for division
+	MOV	CX,=NMBHDS		; get number of heads
+	DIV	CX			; calc cylinder/head number
+	MOV	DH,DL			; DH now contains the head number
+	MOV	DL,DRIVE		; get PD requested drive number
+	OR	DL,=0X80		; DL now contains the drive number
+	POP	CX			; restore sector number to CX reg
+	MOV	CH,AL			; CH now contains low cylinder bits
+	ROR	AX,=1
+	ROR	AX,=1			; shift high cylinder bits out
+	AND	AL,=0XC0		; and mask them
+	INC	CL			; adjust sector relative 1
+	OR	CL,AL			; CL contains high cyl bits/sector
+	MOV	AL,=1			; set sector count = 1
+	MOV	AH,=2			; set function = 2, "READ"
+	MOV	TRYCNT,=MAXTRY  	; set try count = max trys
+__RDL:	PUSH	AX			; save function/sector count
+	INT	DISK_IO			; read sector
+	POP	AX			; restore function/sector count
+	JNC	__X			; if no errors, done
+	DEC	TRYCNT			; else, decrement try count
+	JNZ	__RDL			; if not last try, continue
+	MOV	AH,=0			; else, set function number = 0
+	INT	DISK_IO			; reset disk I/O driver
+	MOV	AL,=0xFF		; set return code = FF hex
+	RET				; done
+__X:	XOR	AL,AL			; set return code = 0
+	RET				; done
+;
+XFER::	MOV	AX,&LODSEG+(128/16)  	; get load segment
+	MOV	DS,AX			; set DS reg
+	MOV	TBUF,=BYTE 0		; make default buffer empty
+	JMPF	TPA,LODSEG+(128/16)	; transfer to loader
+;
+DSTHDC:					; disk specification tables
+	BYTE	5+0X80			; block size (fixed media)
+	WORD	5227			; number of blocks
+	BYTE	32			; number of directory blocks
+	BYTE	2			; physical sector size
+	WORD	63			; physical sectors per track
+	WORD	640			; physical tracks per disk
+	WORD	1			; number of reserved tracks
+;
+	WORD	0			; allocation for reserved ID bytes
+;
+	END
+

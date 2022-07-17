@@ -1,0 +1,607 @@
+	#TITLE	"Serial 16550 compatible UART for i86 PC"
+	#SUBTTL	"(c)2020 Lodden Services, LLC"
+;
+;	UARTI86.A   
+;
+;  this driver requires the SERMUX,VECI86 drivers be installed into the system 
+;  allowing multiple different serial configurations of cards and I/O ports
+;
+;	10/15/2020 jrl created based on S2k sample drivers
+;	10/19/2020 jrl hardcoded for COM1 0x3F8, IRQ 4 and does not require VECI86 for testing
+;	10/24/2020 jrl more cleanup
+;   10/30/2020 jrl 16650 removal of FIFO code -- testing no FIFO serial chip handling 
+;
+;
+DEBUG	==	"\N\RDebug messages wanted (0=no,1=yes)"
+
+;
+	#IF	DEBUG
+	MODULE	"UARTDBG"
+	#ELSE
+	MODULE	"UARTI86"		; module ID
+	#ENDIF
+;
+	#INCLUDE "DREQUATE"		; common driver equivalences
+;
+RDA	==	0X01			; receive data availible in LSR  
+TBE	==	0X20			; transmit buffer empty in LSR
+CTS	==	0X10			; clear-to-send in MSR 
+	
+;
+	#SUBTTL	"Driver Data Area"
+	#PAGE
+;
+	LOC	Data#			; locate in data segment
+;
+FCNTBL	==	.			; driver function lookup table
+	WORD	SERST			; serial status
+	WORD	SERIN			; serial input
+	WORD	SEROUT			; serial output
+	WORD	SERSBR			; serial set baud rate
+	WORD	SERRBR			; serial return baud rate
+	WORD	SERSMC			; serial set MODEM controls
+	WORD	SERRMC			; serial return MODEM controls
+NMBFCN	==	(.-FCNTBL)/2		; number of valid functions
+;
+;  Baud rate divsor table for UART based on Divisor Latch = 115200 / Baud Rate 
+;  i86 commom UART clock of 1.8432 MHZ 
+;  with a divisor of 16 given an rate of 115.2 Khz fequency
+;
+;  TurboDOS T-37 Fun Call orignal baud rate code inside of ()
+;
+BRTBL:	WORD	3			; changed to 38.4k baud   (50 baud) 
+		WORD	2		 	; changed to 57.6k baud   (75 baud)
+		WORD	1		 	; changed to 115200 baud  (110 baud)
+		WORD	1		 	; also 115200 (134.5 baud)
+		WORD	1			; also 115200 (150 baud)
+		WORD	384		 	; 300 baud timer value
+		WORD	192		 	; 600 baud timer value
+		WORD	96		 	; 1200 baud timer value
+		WORD	96		 	; 1200 baud (1800 baud)
+		WORD	96		 	; 1200 baud (2000 baud) 
+		WORD	48		 	; 2400 baud timer value
+		WORD	24			; 4800 baud (3600 baud)
+		WORD	24		 	; 4800 baud timer value
+		WORD	24		 	; 4800 baud (7200 baud) 
+		WORD	12		 	; 9600 baud timer value
+		WORD	6		 	; 19200 baud timer value
+;
+;
+UARTIO_::					; Default I/O Port address
+		WORD	0x3F8
+UARTIQ_::					; Default IRQ
+		BYTE	0x04
+UARTBZ_::
+S0IBSZ:	WORD	16			; serial 0 input buffer size
+S0IBUF:	WORD	0			; serial 0 input buffer address
+S0IPTR:	WORD	0			; serial 0 input pointer
+S0OPTR:	WORD	0			; serial 0 output pointer
+S0ICNT:	WORD	0			; serial 0 input count
+S0IWCT:	BYTE	0			; serial 0 input wait count
+S0OCHR:	BYTE	0			; serial 0 output character
+S0BR:	BYTE	0			; serial 0 baud rate code
+S0MC:	BYTE	0xEA			; serial 0 modem control save area
+;
+;
+S0ISPH:					; serial 0 input semaphore
+		WORD	0			; semaphore count
+__S0IH:	WORD	__S0IH			; semaphore p/d head
+		WORD	__S0IH
+;
+					; serial 0 output exclusion semaphore
+S0OMXS:	WORD	1			; semaphore count
+__S0OH:	WORD	__S0OH			; semaphore p/d head
+		WORD	__S0OH
+;
+					; serial 0 output semaphore
+S0OSPH:	WORD	0			; semaphore count
+__S0OH:	WORD	__S0OH		; semaphore p/d head
+		WORD	__S0OH
+;
+S0OPL:	WORD	0	; serial Poll linkage
+		WORD	0			
+		WORD	&S0OPR		; poll routine entry
+	
+	
+	#SUBTTL	"Driver Routines"
+	#PAGE
+;
+	LOC	Code#			; locate in code segment
+
+;;
+;
+; Init Driver entry point from SERMUX
+;
+SERIN_::
+	MOV		DX,UARTIO_
+	ADD		DX,=7			; UART SCR
+	MOV		AL,=0x2A		; write something to SCR
+	OUT		DX,AL
+	IN		AL,DX		
+	CMP		AL,=0x2A		; see if came back
+	JNZ		__NODEV			; did not come back -- no device
+;
+	MOV		BX,S0IBSZ		; get serial 0 input buffer size
+	CALL	ALLOC#			; allocate packet for serial buffer
+	MOV		S0IBUF,BX		; save serial 0 input buffer addr
+	MOV		S0IPTR,BX		; set serial 0 input pointer
+	MOV		S0OPTR,BX		; set serial 0 output pointer
+	;			
+	MOV		DL,UARTIQ_		; Set IRQ Vector for UART Rec ISR
+	ADD		DL,=8			; i86 vector offset for IRQs
+	MOV		BX,&SERISR
+	CALL	VECNIT#
+;
+;	PUSH	DS
+;	XOR		AX,AX
+;	MOV		DS,AX
+;	MOV		(0x0C*4)+0,WORD &SERISR
+;	MOV		(0X0C*4)+2,CS
+;	POP		DS
+;
+	MOV		DX,UARTIO_
+	ADD		DX,=4			;Modem Control (4)
+	MOV		AL,=0x0B		;RTS/DTS and (AUX 2=Enable INTR off chip)
+	OUT		DX,AL
+	;
+	DEC		AX				;LCR (3) 
+	MOV		AL,=0x3 		; 8 Bits, No Parity, 1 Stop Bits
+	OUT		DX,AL
+	; ** DISABLE FIFO CODE FOR TESTING
+	DEC		DX				; FIFO Control (2)
+	MOV		AL,=07			; FIFO clear
+;OUT		DX,AL			 
+	MOV		AL,=00			; disable fifo
+;OUT		DX,AL			
+	; ** 
+	IN		AL,=0x21		; hardcode IRQ 4 enable in the PIC
+	AND		AL,=0xEF
+	OUT		0x21,AL	
+	;
+	DEC		DX				; Interupt Enable Reg (1)
+	MOV		AL,=1			; enable recv interrupts
+	OUT		DX,AL
+	;
+	MOV		DX,UARTIO_
+	ADD		DX,=4			;Modem Control (4)
+	MOV		AL,=0x0B		;RTS/DTS and (AUX 2=Enable INTR off chip)
+	OUT		DX,AL
+	;
+	;
+	#IF		DEBUG
+	call		DEBUGM#
+	db	13,10,"UART INIT Complete",13,10,0	
+	#ENDIF
+
+	MOV		AL,=1				; number of serial ports handled
+	RET
+;
+__NODEV:
+	#IF DEBUG
+	CALL	DEBUGM#
+	BYTE	13,10,"No Serial 16650 Device Found.",13,10,0
+	#ENDIF
+	;
+	XOR		AX,AX			; no 16650 device found
+	RET
+
+;
+; Main Entry point from SERMUX
+; 
+;
+SERIO_::
+;
+	CMP		DL,=10			; function number=10?
+	JNZ		__NOPT			; if not, continue
+	JMP		SEROPT			; else, continue
+;
+__NOPT:	
+	CMP		DL,=NMBFCN		; valid function number?
+	JNC		__X				; if not, continue
+;
+	MOV		DH,=0			; make function number double length
+	MOV		BX,DX			; function number to bx-reg
+	ADD		BX,BX			; x2
+	JMPI	FCNTBL[BX]  		; transfer to function processor
+__X:	
+	RET
+;
+;
+; Serial status entry point.
+;
+SERST:	
+	MOV		AX,S0ICNT  		; get serial 0 input buffer count
+	MOV		BX,S0OPTR
+	TEST	AX,AX			; serial input buffer count=0?
+	JZ		__X		
+	MOV		CL,[BX]			; else, get serial input character
+	MOV		AL,=0xFF  		; set return code=0ffh
+__X:	
+	RET
+;
+; Serial input entry point.
+;
+SERIN:	
+__S0I:	
+	CLI				; disable interrupts
+	MOV		AX,S0ICNT		; get serial 0 input count
+	TEST	AX,AX			; serial 0 input count=0?
+	JZ		__WT0			; if so, continue
+;
+	DEC		S0ICNT			; decrement serial 0 input count
+	MOV		BX,S0OPTR		; get serial 0 output pointer
+	MOV		AL,[BX]			; get character from buffer
+	INC		BX			; increment serial 0 output pointer
+	MOV		DX,BX			; serial 0 output pointer to dx-reg
+	MOV		BX,S0IBSZ		; get serial 0 input buffer size
+	DEC		BX			; decrement input buffer size
+	MOV		CX,S0IBUF		; get serial 0 input buffer addr
+	ADD		BX,CX			; calc last input buffer address
+	SUB		BX,DX			; buffer wrap-around?
+	JNC		__NWA0			; if not, continue
+;
+	MOV		DX,CX			; get serial 0 input buffer address
+__NWA0:	
+	MOV		S0OPTR,DX		; update serial 0 output pointer
+	STI				; enable interrupts
+	RET
+;
+__WT0:				
+	INC		S0IWCT			; increment serial 0 input wait count
+	STI	
+	;
+	#IF 	DEBUG
+	CALL	DEBUGM#
+	BYTE	"WAITING FOR INP",0
+	#ENDIF 
+	
+	MOV		BX,&S0ISPH		; get serial 0 input semaphore
+	CALL	WAIT#			; wait for console input
+	;
+	#IF	DEBUG
+	CALL	DEBUGM#
+	BYTE	"OUT OF INP",0
+	#ENDIF
+;
+	JMPS	__S0I			; continue
+
+
+SEROPT:	
+	MOV		DX,UARTIO_		; get serial 0 status port addr
+	ADD		DX,=5			; LSR Offset
+	IN		AL,DX			; else, get serial 0 line status
+	AND		AL,=TBE			; transmit buffer empty?
+	JZ		__S0X			; if not, done
+;
+	MOV		AL,S0BR			; else, get serial 0 baud rate code
+	AND		AL,=1<<6		; clear to send required?
+	JZ		__NHR0			; if not, continue
+;
+	INC		DX				; Index to Modem Status Reg
+	IN		AL,DX			; else, get serial 0 status
+	AND		AL,=CTS			; check clear to send status
+	JZ		__S0X			; if clear to send false, done
+;
+__NHR0:	
+	MOV		AL,CL			; get serial 0 output character
+	MOV		DX,UARTIO_		; get serial 0 data port address
+	OUT		DX,AL			; output character
+	MOV		AL,=0xFF  		; set return code=0ffh
+__S0X:	
+	RET
+;
+; Serial output entry point.
+;
+SEROUT:
+	PUSH	CX			; save reg
+	MOV		BX,&S0OMXS
+	CALL	WAIT#			; wait exclusion semaphore
+	POP		CX			; restore reg
+;
+	MOV		DX,UARTIO_
+	ADD		DX,=5			
+						; get serial 0 status port address
+	IN		AL,DX			; else, get serial 0 status
+	AND		AL,=TBE			; transmit buffer empty?
+	JZ		__S0NR			; if not, continue
+;
+	MOV		AL,S0BR			; else, get serial 0 baud rate code
+	AND		AL,=1<<6  		; clear to send required?
+	JZ		__NHR0			; if not, continue
+;
+	INC		DX	
+	IN		AL,DX			; else, get serial 0 status
+	AND		AL,=CTS			; check clear to send status
+	JZ		__S0NR			; if clear to send false, continue
+;
+__NHR0:	
+	MOV		AL,CL			; get serial 0 output character
+	MOV		DX,UARTIO_		; get serial 0 data port address
+	OUT		DX,AL			; output character
+	JMPS	__S0OC			; and continue
+;
+__S0NR:	
+	MOV		S0OCHR,CL		; save output character
+	MOV		DX,&S0OPL		; get poll linkage address
+	CALL	LNKPOL#			; create poll routine
+	MOV		BX,&S0OSPH		; get serial 0 out semaphore
+	CALL	WAIT#			; dispatch if necessary
+__S0OC:	
+	MOV		BX,&S0OMXS
+	JMP		SIGNAL#			; release exclusion and exit	
+;
+;
+;SERIAL OUTPUT POLL ROUTINE
+;
+S0OPR:
+	MOV		DX,UARTIO_
+	ADD		DX,=5			
+						; get serial 0 status port address
+	IN		AL,DX			; get serial 0 status
+	AND		AL,=TBE			; transmit buffer empty?
+	JZ		__X			; if not, done
+;
+	MOV		AL,S0BR			; else, get serial 0 baud rate code
+	AND		AL,=1<<6		; clear to send required?
+	JZ		__NHR			; if not, continue
+;
+	INC		DX
+	IN		AL,DX			; else, get serial 0 status
+	AND		AL,=CTS			; check clear to send status
+	JZ		__X			; if clear to send false, done
+;
+__NHR:	
+	MOV		AL,S0OCHR		; get serial 0 output character
+	MOV		DX,UARTIO_		; get serial 0 data port address
+	OUT		DX,AL			; output character
+	MOV		BX,&S0OPL		; get serial 0 out poll routine
+	CALL	UNLINK#			; unlink poll routine
+	MOV		BX,&S0OSPH		; get serial 0 out semaphore
+	JMP		SIGNAL#			; signal process as ready
+__X:	
+	RET
+;
+;
+SERISR:	
+	PUSH	AX			; save registers
+	PUSH	BX
+	PUSH	CX
+	PUSH	DX
+	PUSH	DS
+	CALL	GETSDS#			; get system data segment
+
+LPTRIG:
+;
+;	TEST	S0BR,=1<<5		; inhibit input flag set?
+;	JNZ		__ISRX			; if so, done
+;
+	MOV		DX,UARTIO_		; IIR reg
+	ADD		DX,=2
+	IN		AL,DX			; get interrupt status
+;
+	#IF		DEBUG
+	CALL 	DEBUGM#
+	DB	13,10,"isr ",0
+	CALL	DEBUGB#
+	#ENDIF
+;
+	MOV		CL,AL
+	TEST	CL,=1<<0		; this bit set -- no pending
+	JNZ		__ISRX			; all pending triggers done
+	;
+;TEST	CL,=1<<2		; character available
+;JZ		__CLRM			; if not, done
+;
+;
+	MOV		DX,UARTIO_		; 
+	ADD		DX,=3			; LCR Reg
+	IN		AL,DX
+	AND		AL,=0x7F		; make sure the divisor latch is cleared
+	OUT		DX,AL
+;
+	MOV		DX,UARTIO_		; get the input character
+	IN		AL,DX
+	MOV		CL,AL			; serial 0 input character to cl-reg
+;	TEST	S0BR,=1<<7		; attention detection flag set?
+;	JZ		__NAD0			; if not, continue
+	;
+;	AND		AL,=0X7F		; strip sign bit
+;	MOV		AL,ATNCHR#		; get attention character
+;	CMP		AL,CL			; character=attention character?
+;	JNZ		__NAD0			; if not, continue
+;
+;	MOV		AX,S0IPTR		; else, get serial 0 input pointer
+;	MOV		S0OPTR,AX		; reset serial 0 output pointer
+;	MOV		S0ICNT,=0		; set serial 0 input count=0
+;
+__NAD0:	
+	MOV		BX,S0IBSZ		; get serial 0 input buffer size
+	MOV		DX,S0ICNT		; get serial 0 input count
+	INC		DX				; increment serial 0 input count
+	SUB		BX,DX			; serial 0 input buffer full?
+	JC		__CLRM			; if so, done
+;
+	MOV		S0ICNT,DX		; update serial 0 input count
+	MOV		BX,S0IPTR		; get serial 0 input pointer
+	MOV		[BX],CL			; store input character in buffer
+	INC		BX				; increment input pointer
+	MOV		DX,BX			; input pointer to dx-reg
+	MOV		BX,S0IBSZ		; get serial 0 input buffer size
+	DEC		BX				; decrement input buffer size
+	MOV		CX,S0IBUF		; get serial 0 input buffer addr
+	ADD		BX,CX			; calc last input buffer address
+	SUB		BX,DX			; buffer wrap-around?
+	JNC		__NWA0			; if not, continue
+	MOV		DX,CX			; get serial 0 input buffer address
+__NWA0:
+	MOV		S0IPTR,DX		; update serial 0 input pointer
+	MOV		BX,&S0IWCT		; get serial 0 input wait count
+	MOV		DX,&S0ISPH		; get serial 0 input semaphore	
+	
+	MOV		AL,[BX]			; get serial input wait count
+	TEST	AL,AL			; serial input wait count=0?
+	JZ		__CLRM
+	DEC		BYTE [BX]		; decrement input wait count
+	#IF	DEBUG
+	CALL	DEBUGM#
+	BYTE	"INPSIG ",0
+	#ENDIF
+
+	MOV		BX,DX			; semaphore address to bx-reg
+	CALL	SIGNAL#			; signal process as ready
+__CLRM:
+	MOV		DX,UARTIO_
+	ADD		DX,=5
+	IN		AL,DX			; read/clear Line Status Reg (5)
+	INC		DX
+	IN		AL,DX			; read/clear Modem Status Reg (6)
+	;
+	#IF		DEBUG
+	CALL	DEBUGM#
+	BYTE	13,10,"ISR LP",0
+	#ENDIF
+	
+	JMP		LPTRIG			; loop back and see if we have anymore to process
+	
+__ISRX:
+	#IF		DEBUG
+	CALL	DEBUGM#
+	DB	13,10,"ISR EXIT",0
+	#ENDIF
+	
+	MOV		DX,UARTIO_		; IIR reg
+	ADD		DX,=2
+	IN		AL,DX			; get interrupt status
+	;
+;	#IF		DEBUG
+;	CALL	DEBUGB#
+;	#ENDIF
+;	
+
+	MOV		AL,=0x20
+	OUT		0x20,AL
+;	IN		AL,=0x21		; hardcode IRQ 4 enable in the PIC
+;	AND		AL,=0xEF
+;	OUT		0x21,AL	
+;
+	MOV		DX,UARTIO_		; ensure UART IRQ enabled
+	INC		DX	
+	MOV		AL,=1
+	OUT		DX,AL
+;
+	POP		DS			; restore registers
+	POP		DX
+	POP		CX
+	POP		BX
+	POP		AX
+	IRET
+;
+;
+;
+; Set serial baud rate entry point.
+;
+SERSBR:	
+	MOV		BX,&S0BR		; get serial 0 baud rate code
+	MOV		[BX],CL			; save baud rate code
+;
+;index into Baud Rate table 
+;return word value for UART baud rate divisor
+;entry:	CL = requested Baud Rate value.
+;exit:	AX = Divisor 
+;	
+	AND		CL,=0x0F		; extract relevant bits
+	MOV		CH,=0x0			; clear reg ch (form 16 bit)
+	ADD		CX,CX			; x2
+	MOV		BX,&BRTBL		; get baud rate table beginning
+	ADD		BX,CX			; index into table
+	MOV		AX,WORD [BX]		; get the timer value
+;
+	PUSH	AX				; save baud rate divisor
+;
+;  set the baudrate divsor into the UART by setting the DLAB page register UART+3
+;  and loading the baud rate divisor into the base register
+;  
+	
+	MOV		DX,UARTIO_
+	ADD		DX,=3			; LCR offset
+	;
+	CLI						; do not interupt 
+	IN		AL,DX
+	OR		AL,=0x80
+	OUT		DX,AL			; set DLAB 
+	;
+	MOV		DX,UARTIO_
+	POP		AX				; get divisor back
+	OUT		DX,AL			; set divisor 
+	INC		DX
+	MOV		CL,=8
+	ROR		AX,CL
+	OUT		DX,AL
+	;
+	MOV		DX,UARTIO_
+	ADD		DX,=3
+	MOV		AL,=0x03		; clear DLAB & 8 bits, no par
+	OUT		DX,AL
+	STI						; enable interrupts
+	;
+	RET
+;
+;
+; Return serial baud rate entry point.
+;
+SERRBR:	
+	MOV		BX,&S0BR		; get serial 0 baud rate code
+	MOV		AL,[BX]			; get serial baud rate code
+	RET						; all done
+;
+; Set MODEM controls entry point.
+;  **no parity control 
+SERSMC:
+	XOR		AL,AL		
+	TEST	CL,=1<<7		; rts requested?
+	JZ		__NRTS
+	;
+	OR		AL,=1<<1		; set RTS
+__NRTS:
+	TEST	CL,=1<<6		; dtr requested?
+	JZ		__NDTR
+	OR		AL,=1<<0		; Set DTR
+__NDTR:
+	; always set AUX OUT 2 to allow interupts
+	OR		AL,=1<<3
+	MOV		DX,UARTIO_
+	ADD		DX,=4			; MCR 
+	OUT		DX,AL			; set DTR and RTS as requested and AUX OUT 2 forced on
+	RET
+	
+;
+; Return MODEM controls entry point.
+;
+SERRMC:
+	MOV		DX,UARTIO_
+	ADD		DX,=6			; modem status reg
+	IN		AL,DX
+	MOV		CL,AL			; 
+	XOR		AX,AX			; preset nothing set
+	TEST	CL,=1<<4		; CTS set?
+	JZ		__NOCTS
+	OR		AL,=1<<7
+__NOCTS:
+	TEST	CL,=1<<5		; dsr?
+	JZ		__NODSR
+	OR		AL,=1<<6
+__NODSR:
+	TEST	CL,=1<<7		; dcd
+	JZ		__NODCD
+	OR		AL,=1<<5
+__NODCD:
+	TEST	CL,=1<<6		; RI
+	JZ		__NORI
+	OR		AL,=1<<4
+__NORI:
+	
+	RET
+
+	END
+	
+	                                      

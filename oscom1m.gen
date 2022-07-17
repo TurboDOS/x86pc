@@ -1,0 +1,75 @@
+;OSTEST.GEN
+;
+;IBM x86 system 
+;
+;16 bit master TurboDos 1.43
+;
+;
+;***** System Modules ****************************************
+;
+;STDMASTR	;Standard multi-user master system package
+TDMASTR
+;STDSINGL	;Standard non-spooled single-user system package
+;TDSINGL
+PATCH		;Patch area
+;
+IDLE		; IDLE Handler
+;
+;***** Support Modules **************************************
+;
+CPMSUP		;Support for C-functions 7,8,24,28,29,31,37,107 
+;MPMSUP		;Support for C-functions 141-143,153,159-161
+;QUEMGR		;Support for C-functions 134-140 (requires MPMSUP)
+;TPCSUP		;Support for T-functions 44-49
+;
+;SUBMIT		;Support for CP/M "$$$.SUB" files (not recommended, SLOW!)
+;
+;USRSUP		;Support for user-defined function packages
+;
+;***** Processor Modules ************************************
+;
+NITIPC		;IBM-PC hardware initialization module
+DEBUGISA
+SOMIPC		;IBM-PC sign-on message module
+RTCIPC1		;IBM-PC real-time-clock driver module
+;RTCNUL		;Null real-time-clock driver
+MSTNUL		;Null memory specification table
+;
+;CONIPC   	;IBM-PC simple console interface driver (modified)
+;MTVI925   	;"Televideo-925" console driver package w/KBRIPC (monochrome)
+;CTVI925		;"Televideo-925" console driver package w/KBRIPC (color)
+;
+;
+;SIOIPC		;IBM-PC comm channel driver
+;LSTACA		;Asysnchronous serial printer driver
+LSTPPA		;Parallel port driver
+;
+VECI86
+SERMUX
+UARTI86B
+;UARTI86
+CON192
+;
+;***** Disk modules *****************************************
+;
+FDCI86
+;DSKIPC		;IBM-PC floppy-disk driver
+;
+;HDCIPC		;Hard-disk driver for IBM-PC/XT 10MB
+HDCI86		;Hard-disk driver for 20MB using BIOS in QEMU
+;
+;***** Network/Circuit Modules ******************************
+;
+;NETREQ		;Network requestor driver
+;MSGFMT		;Requestor message formatter
+;
+;NETLOD		;Network program loader
+;NETFWD		;Network message forwarder
+;
+;CKTSER
+LANIPC		;IBM-PC Local-area network circuit driver (ARCNet)
+;LANFWT		;Local area network forwarding tables
+;
+;************************************************************
+;END
+

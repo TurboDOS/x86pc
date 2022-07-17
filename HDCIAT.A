@@ -1,0 +1,155 @@
+	#TITLE	"IBM-PCAT HARD DISK DRIVER MODULE"
+	#SUBTTL	"PROGRAM HEADER"
+	#PAGE	132,66
+;
+;	HDCIPC.A
+;
+; Version date: 05/21/85
+;
+; Edit history:
+;  03/21/84 jl - Module created.
+;  05/21/85 MGL - adapted to AT 20Mb driver from XT 10Mb version by jl
+;
+	MODULE	"HDCIAT"		; module ID
+;
+#INCLUDE	"DREQUATE"		; common driver equivalences
+;
+DISK_IO	==	0X13			; disk I/O interrupt number
+NMBHDS	==	4			; number of hard disk heads
+MAXTRY	==	4			; maximum retry count
+;
+	#SUBTTL	"Module Data Area"
+	#PAGE
+;
+	LOC	Data#			; locate in data segment
+;
+FCNTBL:					; function processor address table
+	WORD	RDDSK			; read the disk
+	WORD	WRDSK			; write the disk
+	WORD	RETDST			; return disk specifications
+	WORD	RETRDY			; return ready status
+	WORD	FMTDSK			; format the disk
+;
+NMBFCN	==	(.-FCNTBL)/2		; number of valid functions
+;
+DMXSPH:					; mutual exclusion semaphore
+	WORD	1			; semaphore count
+	WORD	.			; semaphore P/D head
+	WORD	.-2
+;
+TRYCNT:	BYTE	0			; retry counter
+;
+DSTHDC:					; disk specification tables
+	BYTE	5+0X80			; block size (fixed media)
+	WORD	5227			; number of blocks
+	BYTE	32			; number of directory blocks
+	BYTE	2			; physical sector size
+	WORD	17			; physical sectors per track
+	WORD	2460			; physical tracks per disk
+	WORD	1			; number of reserved tracks
+;
+	#SUBTTL	"Driver Entry and Functions"
+	#PAGE
+;
+	LOC	Code#			; locate in code segment
+;
+DSKIN_::				; Driver initialization entry point
+	XOR	AX,AX
+	XOR	DX,DX			; zero regs
+	INT	DISK_IO			; initialize the disk system
+	RET				; all done
+;
+;
+DSKDR_::				; Driver functions entry point
+	MOV	BX,&DMXSPH		; get mutual exclusion semaphore addr
+	CALL	WAIT#			; dispatch if neccessary
+	XOR	AL,AL			; zero reg
+	MOV	BL,PDRFCN[SI]		; get PD requested function number
+	CMP	BL,=NMBFCN		; valid function number?
+	JNC	__NVFN			; if not, continue
+	MOV	BH,AL			; make function number double length
+	ADD	BX,BX			; times 2
+	CALLI	FCNTBL[BX]		; execute function
+__NVFN:	PUSH	AX			; save return code
+	MOV	BX,&DMXSPH		; get exclusion semaphore addr
+	CALL	SIGNAL#			; signal process as ready
+	POP	AX			; restore return code
+	RET				; and exit
+;
+;
+RDDSK:	CALL	SETUP			; do common setup
+	MOV	AH,=2			; set function number = 2
+	JMPS	RWFCOM			; and join common code
+;
+;
+WRDSK:	CALL	SETUP			; do common setup
+	MOV	AH,=3			; set function number = 3
+	JMPS	RWFCOM			; and join common code
+;
+;
+FMTDSK:	OR	AL,=0XFF		; force error condition for now
+	RET				; and exit
+;
+;
+RETDST:	CALL	RETRDY			; test drive ready
+	OR	AL,AL			; set flags, drive ready?
+	JZ	__X			; if not, continue
+	MOV	PDRDST[SI],&DSTHDC	; place descriptor in PDR packet
+	OR	AL,=0XFF		; set return code for ready
+__X:	RET				; all done
+;
+;
+RETRDY:	MOV	AL,PDRDRV[SI]		; get drive number
+	CMP	AL,=4			; valid drive number
+	MOV	AL,=0			; preset return code
+	JNC	__X			; if invalid drive, continue
+	MOV	DL,PDRDRV[SI]		; get drive number
+	OR	DL,=0X80		; select hard disk drive
+	MOV	AH,=0X10		; set function number = 10 hex
+	INT	DISK_IO			; test drive ready
+	MOV	AL,=0			; preset not ready return code
+	JC	__X			; if drive not ready, continue
+	OR	AL,=0XFF		; set ready return code
+__X:	RET				; all done
+;
+;
+RWFCOM:					; read/write function common
+	MOV	TRYCNT,=MAXTRY		; set the retry counter up
+__TRY:	PUSH	AX			; save function/sector count
+	INT	DISK_IO			; do the operation
+	POP	AX			; restore function/sector count
+	JNC	__X			; if success, continue
+	DEC	TRYCNT			; else, decrement retry counter
+	JNZ	__TRY			; if not last try, continue
+	MOV	AH,=0			; else, set function number = 0
+	INT	DISK_IO			; reset the disk system
+	OR	AL,=0XFF		; set error return code
+	RET				; and exit
+__X:	XOR	AL,AL			; set success return code
+	RET				; and exit
+;
+;
+SETUP:					; read/write setup common
+	PUSH	AX			; save function number
+	MOV	AX,PDRTRK[SI]		; get PD requested track number
+	XOR	DX,DX			; prep for division
+	MOV	CX,=NMBHDS		; get number of heads
+	DIV	CX			; calc cylinder/head number
+	MOV	DH,DL			; DH now contains the head number
+	MOV	DL,PDRDRV[SI]		; get PD requested drive number
+	OR	DL,=0X80		; DL now contains the drive number
+	MOV	CH,AL			; CH now contains low cylinder bits
+	ROR	AX,=1
+	ROR	AX,=1			; shift high cylinder bits out
+	AND	AL,=0XC0		; and mask them
+	MOV	CL,BYTE PDRSEC[SI]	; get PD requested sector number
+	INC	CL			; adjust relative 1
+	OR	CL,AL			; CL contains high cyl bits/sector
+	MOV	BX,PDRDMA[SI]		; BX contains DMA offset
+	MOV	ES,PDRBAS[SI]		; ES contains DMA base
+	POP	AX			; restore function number
+	MOV	AL,BYTE PDRSC[SI]	; AL contains the sector count
+	RET				; all done
+;
+	END
+

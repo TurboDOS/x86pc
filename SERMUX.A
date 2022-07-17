@@ -1,0 +1,68 @@
+	#TITLE	"TURBODOS SERIAL-MUX"
+
+#PAGE	132,60
+;
+;	SERMUX.A
+;
+
+	MODULE	"SERMUX"	
+;
+	#INCLUDE "DREQUATE"		; common driver equivalences
+;
+	LOC	Data#			; locate in data segment
+;
+SERTBL:					; Serial logic table
+STA:	BYTE	0			; number of serial channels
+	WORD	&SERIOA#		; driver entry point
+STB:	BYTE	0			; number of serial channels
+	WORD	&SERIOB#		; driver entry point
+STC:	BYTE	0			; number of serial channels
+	WORD	&SERIOC#		; driver entry point
+STD:	BYTE	0			; number of serial channels
+	WORD	&SERIOD#		; driver entry point
+;
+;	+------------------------+
+;	| INITIALIZATION ROUTINE |
+;	+------------------------+
+;
+	LOC	Code#			; locate in init segment
+;
+SPINIT::
+	CALL	SERINA#			; initialize driver A
+	MOV	BX,&STA			; point table A
+	CALL	__NCOM			; do common code
+	CALL	SERINB#			; initialize driver B
+	MOV	BX,&STB			; point table B
+	CALL	__NCOM			; do common code
+	CALL	SERINC#			; initialize driver C
+	MOV	BX,&STC			; point table C
+	CALL	__NCOM			; do common code
+	CALL	SERIND#			; initialize driver D
+	MOV	BX,&STD			; point table D
+__NCOM:	TEST	AL,AL			; any channels supported?
+	JZ	__X			; if not, exit
+	MOV	[BX],AL			; store in table
+__X:	RET				; and exit
+;
+;	+-----------------------+
+;	| SERIAL BRANCH ROUTINE |
+;	+-----------------------+
+;
+SERIAL::				; serial channel entry point
+COMDRV::				; comm channel driver entry point
+	MOV	BX,&SERTBL		; point table base
+	MOV	AH,=4			; get number of supported drivers
+__SLP:	MOV	AL,CH			; get channel number offset
+	SUB	AL,[BX]			; channel within range
+	JC	__SC1			; if so, continue
+	MOV	CH,AL			; update channel number offset
+	INC	BX
+	INC	BX
+	INC	BX			; advance to next driver
+	DEC	AH			; any drivers left?
+	JNZ	__SLP			; if so, continue
+	RET				; else, return to caller
+__SC1:	MOV	BX,1[BX]		; load driver entry addr
+	JMPI	BX			; and branch to driver entry
+;
+	END

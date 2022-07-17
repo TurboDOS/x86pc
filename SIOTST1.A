@@ -1,0 +1,28 @@
+	#TITLE	"Serial port driver tester"
+	#PAGE	132,66
+;
+	MODULE	"SIOTST"
+;
+	TLINK	"X"
+;
+	#INCLUDE "EQUATE"
+;
+	LOC	Code#
+START:  MOV     CL,=37
+        MOV     DX,=15
+        INT     223
+        MOV     CL,=38
+        MOV     DX,=0
+        INT     223
+__1:    MOV     CL,=35
+        MOV     DX,=00
+        INT     223
+        MOV     DL,AL
+        MOV     CL,=36
+        MOV     DH,=00
+        INT     223
+        JMP     __1
+;
+;
+	END	START
+

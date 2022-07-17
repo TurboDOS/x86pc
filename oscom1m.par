@@ -1,0 +1,192 @@
+;OSTEST.PAR
+;
+;IBM x86 system
+;
+;16 bit master TurboDos 1.43
+;
+;
+;*****	General Parameters  **************************************************
+;
+USRSOM = 0x0D,0x0A,"IBM i86 MASTER serial console  (11/19/2020)"
+;
+LDCOLD = 0x00		;Disable Cold-start autoload (change to 0xFF to enable)
+COLDFN = 0x00,"COLDIBM ","AUT"	;Cold-start autoload (change to 0xFF to enable)
+;
+LDWARM = 0x00		;Disable Warm-start autoload (change to 0xFF to enable)
+WARMFN = 0x00,"WARMIBM ","AUT"	;Warm-start autoload (change to 0xFF to enable)
+;
+SRHDRV = 0xFF			;Search drive (0=OFF,1-16="A"-"P",FF=BOOT DRIVE)
+; 	  			NOTE: change this value to 0x03 if installing 
+;				      system to hard disk "C:"
+;
+ATNCHR = 0x1E			;Attention character = ^^ (CTRL+SHIFT+6)
+CLPCHR = 0x3E			;Command-line prompt character = ">"
+;
+AUTUSR = 0x80			;Log-on = user 0 priviledged
+;
+COMPAT = 0xF8			;File and record locking compatibility flags:
+;CPMVER = 0x31			;CP/M version
+;
+;*****	Memory Parameters ****************************************************
+;
+;BUFSIZ = 3			
+;NMBUFS = 2			;Number of buffers 
+;BUFLEN = (0x1000)
+;BUFBAS = (0x9000)	
+;MEMTBL = 0x01,(0x0050),(0x9000-0x0050)	
+;OSMLEN = (2048)		;System scratch area
+;
+MEMTBL = 0X01,(0X50),(0X4000-0X50)	;System Memory Description (256K)
+BUFBAS = (0X4000)			;Start Buffers Above TPA
+BUFLEN = (0X6000)
+NMBUFS = 192				;192 Buffers = 384 1K buffers
+BUFLEN = 4				;2 Kbyte Buffers 
+OSMLEN = (2048)				;Space for Dynamic Expansion
+;
+;*****	Printer and Queue Parameters  ****************************************
+;
+PTRAST = 0x00,(LSTDRA)		;Printer A -- LPT1
+	 0xFF,(0x0000)		;Printer B not assigned 
+	 0xFF,(0x0000)		;Printer C not assigned 
+	 0xFF,(0x0000)		;Printer D not assigned 
+	 0xFF,(0x0000)		;Printer E not assigned 
+	 0xFF,(0x0000)		;Printer F not assigned 
+	 0xFF,(0x0000)		;Printer G not assigned 
+	 0xFF,(0x0000)		;Printer H not assigned 
+	 0xFF,(0x0000)		;Printer I not assigned 
+	 0xFF,(0x0000)		;Printer J not assigned 
+	 0xFF,(0x0000)		;Printer K not assigned 
+	 0xFF,(0x0000)		;Printer L not assigned 
+	 0xFF,(0x0000)		;Printer M not assigned 
+	 0xFF,(0x0000)		;Printer N not assigned 
+	 0xFF,(0x0000)		;Printer O not assigned 
+	 0xFF,(0x0000)		;Printer P not assigned 
+;
+QUEAST = 0x00,(0x0000)		;Queue A not assigned
+	 0xFF,(0x0000)		;Queue B not assigned
+	 0xFF,(0x0000)		;Queue C not assigned
+	 0xFF,(0x0000)		;Queue D not assigned
+	 0xFF,(0x0000)		;Queue E not assigned
+	 0xFF,(0x0000)		;Queue F not assigned
+	 0xFF,(0x0000)		;Queue G not assigned
+	 0xFF,(0x0000)		;Queue H not assigned
+	 0xFF,(0x0000)		;Queue I not assigned
+	 0xFF,(0x0000)		;Queue J not assigned
+	 0xFF,(0x0000)		;Queue K not assigned
+	 0xFF,(0x0000)		;Queue L not assigned
+	 0xFF,(0x0000)		;Queue M not assigned
+	 0xFF,(0x0000)		;Queue N not assigned
+	 0xFF,(0x0000)		;Queue O not assigned
+	 0xFF,(0x0000)		;Queue P not assigned
+;
+;** Despool Assignment Table
+DSPPAT = 0x01,0x02,0x03,0x04	;All printers attached to respective queues
+	 0x05,0x06,0x07,0x08	;
+	 0x09,0x0A,0x0B,0x0C	;
+	 0x0D,0x0E,0x0F,0x10	;
+;
+PRTMOD = 0x00			;Print mode: 00=direct, 01=spooled
+QUEPTR = 0x00			;Queue/printer active at boot = A
+SPLDRV = 0x00			;Spooling drive = A
+EOPCHR = 0x1A			;End-of-print character: 00=none, 1A=control-Z
+;
+;**** Drive Parameters ******************************************************
+;
+;** Disk Assignment Table
+;
+DSKAST = 0x00,(DSKDRA)		;Drive A: Local Floppy
+	 0x01,(DSKDRA)		;Drive B: Local Floppy
+	 0x00,(DSKDRB)		;Drive C: Local HDD
+	 0x01,(DSKDRB)		;Drive D: not assigned
+	 0xFF,(0x0000)		;Drive E: not assigned
+	 0xFF,(0x0000)		;Drive F: not assigned
+	 0xFF,(0x0000)		;Drive G: not assigned
+	 0xFF,(0x0000)		;Drive H: not assigned
+	 0xFF,(0x0000)		;Drive I: not assigned
+	 0xFF,(0x0000)		;Drive J: not assigned
+	 0xFF,(0x0000)		;Drive K: not assigned
+	 0xFF,(0x0000)		;Drive L: not assigned
+	 0xFF,(0x0000)		;Drive M: remote circuit 5, node 1
+	 0xFF,(0x0000)		;Drive N: not assigned
+	 0xFF,(0x0000)		;Drive O: not assigned
+	 0xFF,(0x0000)		;Drive P: not assigned
+;
+;**** Networking Parameters **************************************************
+;
+NMBSVC = 0x08			;Number of server processes 
+;
+NMBMBS = 0x04			;Number of pre-allocated message buffers
+NMBRPS = 0x02			;Number of pre-allocated reply packets
+;
+MAXMBS = 0x06			;Max number of message buffers
+MAXRPS = 0x04			;Max number of reply buffers
+;
+NMBCKT = 0x01			;Number of network circuits
+;
+CKTAST = (0x0001),CKTDRA	;Circuit assignment for ARCNet LAN driver
+;
+;DEFDID = (0x0501)		;Default destination ID
+;
+;FWDTBL = 0x01,0x00		;Network forwarding table (foreign circuits)
+;	 0x02,0x00
+;	 0x03,0x00
+;	 0x04,0x00
+;	 0x05,0x00
+;	 0x06,0x00
+;	 0x07,0x00
+;	 0x08,0x00
+;	 0x09,0x00
+;	 0x0A,0x00
+;	 0x0B,0x00
+;	 0x0C,0x00
+;	 0x0D,0x00
+;	 0x0E,0x00
+;	 0x0F,0x00
+;
+;**** IBM-PC ARCNet Board Parameters [LANIPC] OEM ****************************
+;
+;LANSGA = (0xD000) 		;Memory segment address of ARCNet controller
+;LANIOA = (0x02E0) 		;I/O base address of ARCNet controller
+;
+;LANFWT = 0x01,0x01		;Circuit 1 on node 1
+;	 0x02,0x02		;Circuit 2 on node 2
+;	 0x03,0x03		;Circuit 3 on node 3
+;	 0x04,0x04		;Circuit 4 on node 4
+;	 0x05,0x05		;Circuit 5 on node 5
+;	 0x06,0x06		;Circuit 6 on node 6
+;	 0x07,0x07		;Circuit 7 on node 7
+;	 0x08,0x08		;Circuit 8 on node 8
+;	 0x09,0x09		;Circuit 9 on node 9
+;	 0x0A,0x0A		;Circuit 10 on node 10
+;	 0x0B,0x0B		;Circuit 11 on node 11
+;	 0x0C,0x0C		;Circuit 12 on node 12
+;	 0x0D,0x0D		;Circuit 13 on node 13
+;	 0x0E,0x0E		;Circuit 14 on node 14
+;	 0x0F,0x0F		;Circuit 15 on node 15
+;
+;**** Version 1.43 Patches ***************************************************
+;
+;To:     ALL TurboDOS 1.43 OEMs
+;Re:     Software PATCHES
+;Date:   24 January 1987
+;
+;The following patches apply to TurboDOS 1.43 only; not prior
+;versions.  The module 'PATCH' must be included in the 'GEN'
+;table to make room for the patches.
+;
+;For: 	All 16-bit configurations with STDLOADR,STDSINGL,
+;		STDSPOOL,STDMASTR,STDSLAVX or FILMGR modules
+;To:	Correct a problem with C-function 15 when used
+;       to retrieve directory S1 byte of pseudo-files
+;       $.DIR and $.DSK.
+;
+;8086 Systems:
+OPNFIL+0X4A = [PATCH]
+PATCH = 0XE8,[CKSPFN],0XB0,0X00,0X74,0X03,
+        0XE9,[OCECOM],0X83,0XC4,0X02,0XE9,[OPNFIL+0X59]
+;
+;The preceding comprise all known patches for 16-bit TurboDOS, version
+;1.43, through and including the above-referenced date.
+;
+;
+;EOF OSMASTER.PAR  TLINK OSMASTER.SYS

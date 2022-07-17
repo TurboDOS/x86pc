@@ -1,0 +1,392 @@
+;DSPCHRID.A
+;
+;Dispatcher for a 16 bit TurboDOS version 1.43 operating system.
+; updated for IDLE loop
+;
+;(C)opyright 1986, Software 2000, Inc.
+;
+;021895 disassembly by Michael J. Winter, S-S Electric Repair Shop, Inc.
+;	Certified identical when assembled and relinked into an operating
+;	system.
+;031195 mjw more work on labels and comments
+;080310 mjw added a few more comments
+;111920 jrl add call to idle# so an idle loop can be made
+;
+
+	#PAGE	132
+;
+	MODULE	"DSPCHRID"
+;
+	LOC	Data#
+;
+	ALIGN
+;
+TICCNT::WORD	0
+ELPTIM:	WORD	0
+;
+	RDYSPH	==	.
+;
+	WORD	0
+RDYLST:	WORD	.
+	WORD	.-2
+;
+DLYSPH:	WORD	0
+DLYLST:	WORD	DLYLST
+	WORD	DLYLST
+;
+POLLST:	WORD	POLLST
+	WORD	POLLST
+;
+	WORD	0,0,0,0,0,0,0,0
+	WORD	0,0,0,0,0,0,0,0
+	WORD	0,0,0,0,0,0,0,0
+	WORD	0,0,0,0,0,0,0,0
+;
+LCLSTK:
+PRCNMB:	BYTE	0
+DSPFLG:	BYTE	0x60
+;
+	LOC	Code#
+;
+;*****	Create process function - T function 1, entry point
+;
+CTPFCN::MOV	DX,0x55[SI]
+	TEST	DX,DX
+	JZ	DELPRC
+;
+	MOV	BX,0x51[SI]
+	CALL	CRPROC
+;
+	MOV	0x4F[SI],AL
+	RET
+;
+;****	Terminate the process
+;
+DELPRC:	MOV     CL,=0x00
+	CALL	XTNTRY#
+;
+	OR	DSPFLG,=0x40
+	MOV	SP,&LCLSTK
+	CALL	GETWSB
+;
+	PUSH	AX
+	MOV	BX,&RDYSPH
+	CALL    UNLPRC
+;
+	POP	BX
+	CALL	DEALOC#
+;
+	JMP     DLYD
+;
+;*****	Create process
+;
+CRPROC::PUSH	BX		;Save "DI" workspace pointer
+	PUSH	DX		;Save new process entry point
+	MOV	BX,=0x015D	;349 bytes
+	CALL	ALLOC#
+;
+	POP	DX		;Restore entry point
+	POP	CX		;Restore "DI" workspace pointer
+	TEST	AL,AL		;Got the memory?
+	JNZ	__02		;If no, skip
+;
+	PUSH	CX		;Save "DI" workspace pointer
+	PUSH	BX		;Save "SI" workspace pointer
+	MOV	CX,=0x015D	;Get count
+__01:	MOV BYTE [BX],=0x00	;Fill "SI" workspace with nulls
+	INC	BX
+	LOOP	__01
+;
+	POP	BX		;Restore "SI" workspace pointer
+	MOV	AL,PRCNMB
+	MOV	0x4E[BX],AL
+	INC	PRCNMB
+	POP	CX		;Restore "DI" workspace pointer
+	MOV	0x44[BX],CX	;Stuff it into workspace
+	MOV	0x015B[BX],DX	;Stuff process entry point
+	LEA	AX,0x015B[BX]	;Get pointer to process entry point
+	MOV	0x46[BX],AX
+	MOV	0x48[BX],DS
+	LEA	DX,0x33[BX]	;Get pointer to process message node
+	PUSH	DX		;Save it
+	MOV	BX,&RDYSPH
+	CALL	LNKPRC		;Add new process to list of ready processes
+;
+	POP	BX
+	XOR	AL,AL		;Set process created successfully flag
+__02:	RET
+;
+;*****	Send interprocess message - T function 5 entry point
+;
+SMFCN::	MOV	DX,0x51[SI]
+	MOV	BX,0x55[SI]
+;
+;******	Send interprocess message - driver entry point
+;
+SNDMSG::PUSH	BX		;Save pointer to semaphore part
+	ADD	BX,=0x0006	;Index to list header
+	CALL	LNKEND#
+;
+	POP	BX		;Restore semaphore pointer
+	JMP	SIGNAL
+;
+;*****	Receive interprocess message - T function 6 entry point
+;
+RMFCN::	MOV	BX,0x55[SI]
+;
+	CALL	RCVMSG
+;
+	MOV	0x51[SI],BX
+	RET
+;
+;*****	Receive interprocess message - kernel entry point
+;
+RCVMSG::CALL	WAIT
+;
+	MOV	BX,0x06[BX]	;Index to list header
+	CALL	UNLINK#		;Take message out of the list
+;
+	MOV	BX,DX
+	RET
+;
+;****	Add new project to list of polling projects
+;
+LNKPOL::MOV	BX,&POLLST	;Point to poll list
+	JMP	LNKBEG#
+;
+ISRXIT::PUSH	AX
+	PUSH	SI
+	PUSH	DS
+	CALL	GETSDS#
+;
+	TEST	DSPFLG,=0x40	;Bit 6, Are dispatches disabled?
+	JNZ	__01		;If yes, skip
+;
+	CALL	GETWSB
+;
+	MOV	SI,AX
+	TEST BYTE 0x37[SI],=0x40	;Bit 6, Are dispatches disabled?
+	JNZ	__01		;If yes, kip
+;
+	MOV WORD 0x4C[SI],&RDYSPH	;Save semaphore pointer
+	CALL	DLYC		;Process the dispatch
+;
+	JMPS	__02
+;
+__01:	CALL    SETDRF		;Set dispatch is required flag
+;
+__02:	POP     DS
+	POP	SI
+	POP	AX
+	IRET
+;
+DISDSP::AND BYTE 0x37[SI],=0x7F
+	TEST BYTE 0x37[SI],=0x40
+	JZ	__01
+;
+	OR BYTE 0x37[SI],=0x80
+__01:	OR BYTE	0x37[SI],=0x40
+	RET
+;
+ENADSP::CALL	DSPIFR		;Dispatch if required
+;
+	TEST BYTE 0x37[SI],=0x80
+	JNZ	__01
+;
+	AND BYTE 0x37[SI],=0xBF
+__01:	RET
+;
+SETDRF::OR BYTE	DSPFLG,=0x80
+	RET
+;
+DSPIFR::TEST BYTE DSPFLG,=0x80	;Test bit 7
+	JNZ	__01
+;
+	RET
+;
+__01:	AND BYTE DSPFLG,=0x7F	;Clear bit 7
+CRTSYD:	MOV	BX,&RDYSPH
+	JMPS	DLYA
+;
+WAIT::	CLI			;Hold off interrupts
+	DEC BYTE [BX]		;Knock the counter
+	JS	__01		;Skip if negative
+;
+	STI			;Restore interrupt processing
+	XOR	AL,AL		;Return flag, no waiting was required
+	RET			;Done
+;
+__01:	INC BYTE [BX]		;Restore the counter
+	MOV	AL,=0xFF	;Set waiting was required flag
+	JMPS	DLYB
+;
+DPFCN::	MOV	BX,0x55[SI]	;Get delay specification
+DELAY::	TEST	BX,BX		;Courtesy dispatch only?
+	JZ	CRTSYD		;If yes, skip
+;
+	MOV	0x38[SI],BX	;Save number of delay ticks in workspace
+	MOV	BX,&DLYSPH	;Point to the delay semaphore
+DLYA:	CLI
+DLYB:	MOV	0x4C[SI],BX	;Save semaphore pointer
+DLYC:	OR	DSPFLG,=0x40	;Set bit 6
+	STI
+	MOV	0x3A[SI],AX
+	MOV	0x3C[SI],BX
+	MOV	0x3E[SI],CX
+	MOV	0x40[SI],DX
+	MOV	0x42[SI],BP
+	MOV	0x44[SI],DI
+	MOV	0x46[SI],SP
+	MOV	0x48[SI],SS
+	MOV	0x4A[SI],ES
+	MOV	AX,DS
+	MOV	SS,AX
+	MOV	SP,&LCLSTK
+	AND BYTE DSPFLG,=0xDF	;Clear bit 5
+DLYD:	CALL	EVLDEL		;Check list of delayed processes
+;
+	MOV	BX,POLLST	;Get forward pointer
+DLYE:	CMP	BX,&POLLST	;Pointing to beginning yet?
+	JZ	DLYF		;If yes, skip
+;
+	PUSH	[BX]		;Save forward pointer
+	CALLI	04[BX]		;Execute the node pointer
+;
+	POP	BX		;Restore forward pointer
+	JMPS	DLYE		;Skip, test, and execute next poll
+;
+DLYF:	TEST BYTE DSPFLG,=0x20	;Bit 5, Is the ready list empty?
+	JNZ	RESUME		;If yes, skip
+;
+	CALL	GETWSB
+;
+	MOV	SI,AX
+	MOV	BX,&RDYSPH
+	CALL	UNLPRC
+;
+	MOV	BX,0x4C[SI]
+	CLI
+	MOV	AL,[BX]
+	DEC	AL
+	JS	DLYG
+;
+	MOV	[BX],AL
+	MOV	BX,&RDYSPH
+DLYG:	CALL	LNKPRC
+;
+	STI			;Restore interrupt processing
+	OR BYTE	DSPFLG,=0x20	;Set bit 5
+RESUME::MOV	AL,RDYSPH	;Get number of processes in ready list
+	TEST	AL,AL		;Any processes in ready list?
+	JZ	IDLELP		;If no, skip
+;
+	CALL	GETWSB
+;
+	MOV	SI,AX
+	MOV	ES,0x4A[SI]
+	MOV	SS,0x48[SI]
+	MOV	SP,0x46[SI]
+	MOV	DI,0x44[SI]
+	MOV	BP,0x42[SI]
+	MOV	DX,0x40[SI]
+	MOV	CX,0x3E[SI]
+	MOV	BX,0x3C[SI]
+	MOV	AX,0x3A[SI]
+	AND BYTE DSPFLG,=0xBF	;Clear bit 6
+	RET
+;
+IDLELP:
+	CALL IDLE#
+	JMPS DLYD
+	
+;
+DLYTIC::INC	TICCNT
+	INC	ELPTIM
+	RET
+;
+EVLDEL:	CLI			;Disable interrupts
+	MOV	DX,ELPTIM	;Get number of ticks that have elapsed
+	MOV	ELPTIM,=0x0000	;Reset the timer
+	STI			;Restore interrupt processing
+	TEST	DX,DX		;Have any ticks elapsed?
+	JZ	__04		;If no, skip, and done
+;
+	MOV	BX,DLYLST	;Get forward pointer
+__01:	CMP	BX,&DLYLST	;Pointing to top of list
+	JZ	__04		;If yes, done
+;
+	SUB	0x05[BX],DX	;Adjust timer at this node
+	JZ	__03		;If time is up, skip
+;
+	JC	__02		;If past due, skip
+;
+	MOV	BX,[BX]		;Get forward pointer
+	JMPS	__01		;Skip, and do the next node
+;
+__02:	MOV WORD 0x05[BX],=0x0000	;Reset past due counter to zero
+__03:	PUSH	DX		;Save elapsed time constant
+	PUSH	[BX]		;Save forward pointer
+	CALL	UNLINK#
+;
+	MOV	BX,&DLYLST
+	CALL	LNKBEG#
+;
+	MOV	BX,&DLYSPH
+	CALL	SIGNAL
+;
+	POP	BX		;Restore forward pointer
+	POP	DX		;Restore elapsed time constant
+	JMPS	__01		;Skip, and process the next node
+;
+__04:	RET
+;
+SIGNAL::CALL	UNLPRC
+;
+	TEST	AL,AL
+	JZ	__01
+;
+	MOV	BX,&RDYSPH
+	CALL	LNKPRC
+;
+	MOV	AL,=0xFF
+__01:	RET
+;
+LNKPRC:	PUSHF			;Save interrupt status
+	CLI			;Hold off interrupts
+	DEC BYTE [BX]		;Knock the counter
+	INC	BX
+	INC	BX
+	CALL	LNKEND#
+;
+	POPF			;Restore interrupt status
+	RET
+;
+UNLPRC:	PUSHF			;Save interrupt status
+	CLI			;Hold off interrupts
+	MOV	AL,[BX]		;Get the count byte
+	INC BYTE [BX]		;Bump it
+	TEST    AL,AL
+	MOV	AL,=0x00
+	JNS	__01
+;
+	MOV	BX,02[BX]
+	CALL	UNLINK#
+;
+	MOV	AL,=0xFF
+__01:	POPF			;Restore interrupt status
+	RET
+;
+GETTOS::CALL	GETWSB
+;
+	ADD	AX,=0x015D
+	RET
+;
+GETWSB::MOV	AX,RDYLST	;Get forward pointer
+	SUB	AX,=0x0033
+	RET
+;
+SETDDF::OR BYTE	0x04[BX],=0x40	;Set bit 6
+	RET
+;
+	END
+;

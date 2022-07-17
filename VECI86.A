@@ -1,0 +1,38 @@
+	#TITLE	"Interrupt Vector Init/Setup"
+	#SUBTTL	"(c)2020 Lodden Services, LLC"
+	#PAGE	132,66
+;
+; VECI86.A
+;
+; Version Date: 10/17/2020
+;
+; History:
+; 10/17/2020  jrl  created
+;
+;
+		MODULE	"VECI86"		; module ID
+
+		LOC	Code#			; locate in code segment
+;
+;
+;
+; 	Set up interrupt vectors by calling the following
+; 	subroutine "VECNIT" with:
+;		DL = interrupt vector number (0-255).
+;		BX = interrupt service routine address.
+;
+VECNIT::
+	MOV	DH,=0			; insure value of 0 to 255
+	ADD	DX,DX			; times 2
+	ADD	DX,DX			; times 4
+	XCHG	BX,DX			; DX=int src addr, BX=int vector addr
+	PUSH	DS			; save segment reg
+	XOR	AX,AX			; zero reg
+	MOV	DS,AX			; set data segment
+	MOV	AX,CS			; get code segment
+	MOV	0[BX],DX		; set interrupt vector IP offset
+	MOV	2[BX],AX		; set interrupt vector CS base addr
+	POP	DS				; restore segment reg
+	RET					; all done
+;
+	END
